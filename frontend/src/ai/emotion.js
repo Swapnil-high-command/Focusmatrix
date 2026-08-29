@@ -25,13 +25,14 @@ export async function getEmotionFromVideo(video) {
 
   const e = result.expressions;
 
-  // Map all 7 face-api emotions into 3 buckets
-  const happy   = e.happy;
-  const sad     = e.sad + e.fearful + e.disgusted;
-  const angry   = e.angry + e.disgusted * 0.5;
+  // Use the strongest negative signal, not a sum
+  const dissatisfied = Math.max(e.sad, e.angry, e.disgusted, e.fearful);
 
-  const scores = { Happy: happy, Sad: sad, Angry: angry };
-  const top = Object.entries(scores).reduce((a, b) => (a[1] > b[1] ? a : b));
+  const scores = {
+    "Happy 😊":        e.happy,
+    "Dissatisfied 😞": dissatisfied,
+    "Focused 🧐":      e.neutral,
+  };
 
-  return top[0];
+  return Object.entries(scores).reduce((a, b) => (a[1] > b[1] ? a : b))[0];
 }

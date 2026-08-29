@@ -5,7 +5,8 @@ import { loadFaceLandmarker, loadHandLandmarker } from "../utils/mediapipe";
 import { detectBlink } from "../utils/blinkDetection";
 import { isLookingAtCamera } from "../utils/eyeContact";
 import { getHeadPose } from "../utils/headPose";
-import { detectEmotionFromLandmarks } from "../utils/emotionDetection";
+import { smoothEmotion } from "../utils/emotionDetection";
+import { loadEmotionModel, getEmotionFromVideo } from "../ai/emotion";
 import { getMouthAspectRatio } from "../utils/yawnDetection";
 import { detectGesture } from "../utils/gestureDetection";
 
@@ -81,6 +82,7 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
     startSession();
 
     async function startDetection() {
+      await loadEmotionModel();
 
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
 
@@ -106,7 +108,17 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
 
       let lastFrameTime = performance.now();
 
-      let lastEmotion = "Neutral";
+      let lastEmotion = "Focused";
+      let emotionPending = false;
+
+      function scheduleEmotion(video) {
+        if (emotionPending) return;
+        emotionPending = true;
+        getEmotionFromVideo(video).then((raw) => {
+          lastEmotion = smoothEmotion(raw);
+          emotionPending = false;
+        });
+      }
 
       // Gesture debounce — only count a new gesture after it changes
       let lastCountedGesture = null;
@@ -131,7 +143,7 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
             const ear = detectBlink(landmarks);
             const mar = getMouthAspectRatio(landmarks);
 
-            lastEmotion = detectEmotionFromLandmarks(landmarks);
+            scheduleEmotion(video);
             const emotion = lastEmotion;
             const now = performance.now();
 
