@@ -204,8 +204,23 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
 
             for (const handLandmarks of handResults.landmarks) {
               drawHand(ctx, handLandmarks, canvas.width, canvas.height);
-              const gesture = detectGesture(handLandmarks);
-              if (gesture) currentGesture = gesture;
+            }
+
+            // Namaste — both hands present and palms close together
+            if (handResults.landmarks.length === 2) {
+              const w0 = handResults.landmarks[0][0];
+              const w1 = handResults.landmarks[1][0];
+              const dist = Math.hypot(w0.x - w1.x, w0.y - w1.y);
+              if (dist < 0.15) {
+                currentGesture = "Namaste 🙏";
+              }
+            }
+
+            if (currentGesture === "None") {
+              for (const handLandmarks of handResults.landmarks) {
+                const gesture = detectGesture(handLandmarks);
+                if (gesture) currentGesture = gesture;
+              }
             }
 
             // UPDATE DASHBOARD
