@@ -45,8 +45,8 @@ export function detectGesture(lm) {
   // OK
   if (tipDist < 0.05 && m && r && p)        return "OK 👌";
 
-  // Middle Finger
-  if (!i && m && !r && !p)                  return "Middle Finger 🖕";
+  // Vulgar
+  if (!i && m && !r && !p)                  return "Vulgar 🖕";
 
   // Yo
   if (i && !m && !r && p)                   return "Yo 🤙";
