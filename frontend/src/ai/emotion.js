@@ -29,7 +29,7 @@ export async function getEmotionFromVideo(video) {
   const dissatisfied = Math.max(e.sad, e.angry, e.disgusted, e.fearful);
 
   const scores = {
-    "Happy 😊":        e.happy,
+    "Happy 😊😄":        e.happy > 0.3 ? e.happy : 0,
     "Dissatisfied 😞": dissatisfied,
     "Focused 🧐":      e.neutral,
   };
