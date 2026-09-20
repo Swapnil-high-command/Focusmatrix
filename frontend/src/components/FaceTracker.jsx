@@ -82,9 +82,17 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
     startSession();
 
     async function startDetection() {
-      await loadEmotionModel();
+      // Load emotion model but don't block camera if it fails
+      loadEmotionModel().catch(() => {});
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      } catch (err) {
+        console.error("Camera access denied or unavailable:", err.message);
+        setAnalytics((prev) => ({ ...prev, faceStatus: "Camera Error" }));
+        return;
+      }
 
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -93,21 +101,38 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
       video.srcObject = stream;
 
       await new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-          video.play();
-          resolve();
+        video.onloadedmetadata = () => resolve();
+        video.oncanplay = () => resolve(); // fallback
+      });
+
+      try { await video.play(); } catch {}
+
+      // Wait until video has real dimensions
+      await new Promise((resolve) => {
+        const check = () => {
+          if (video.videoWidth > 0) return resolve();
+          setTimeout(check, 50);
         };
+        check();
       });
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
+      let faceLandmarker, handLandmarker;
+      try {
+        const ctx = canvas.getContext("2d");
+        ({ faceLandmarker } = await loadFaceLandmarker(canvas));
+        handLandmarker = await loadHandLandmarker();
+      } catch (err) {
+        console.error("MediaPipe model load failed:", err.message);
+        setAnalytics((prev) => ({ ...prev, faceStatus: "Model Load Failed" }));
+        return;
+      }
+
       const ctx = canvas.getContext("2d");
-      const { faceLandmarker } = await loadFaceLandmarker(canvas);
-      const handLandmarker = await loadHandLandmarker();
 
       let lastFrameTime = performance.now();
-
       let lastEmotion = "Focused";
       let emotionPending = false;
 
@@ -115,12 +140,11 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
         if (emotionPending) return;
         emotionPending = true;
         getEmotionFromVideo(video).then((raw) => {
-          lastEmotion = smoothEmotion(raw);
+          if (raw) lastEmotion = smoothEmotion(raw);
           emotionPending = false;
-        });
+        }).catch(() => { emotionPending = false; });
       }
 
-      // Gesture debounce — only count a new gesture after it changes
       let lastCountedGesture = null;
 
       function detect() {
@@ -130,7 +154,12 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
         const deltaTime = currentTime - lastFrameTime;
         lastFrameTime = currentTime;
 
-        if (video.readyState === 4) {
+        if (video.readyState >= 2) {
+          // Keep canvas in sync with video size
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+          }
           const results = faceLandmarker.detectForVideo(video, currentTime);
 
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -275,16 +304,21 @@ function FaceTracker({ videoRef, canvasRef, analytics, setAnalytics }) {
       detect();
     }
 
-    startDetection();
+    startDetection().catch((err) => {
+      console.error("startDetection failed:", err.message);
+      setAnalytics((prev) => ({ ...prev, faceStatus: "Startup Error" }));
+    });
 
     return () => {
       running = false;
       cancelAnimationFrame(animationId);
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+      const video = videoRef.current;
+      if (video?.srcObject) {
+        video.srcObject.getTracks().forEach((t) => t.stop());
+        video.srcObject = null;
       }
     };
-  }, [videoRef, canvasRef, setAnalytics]);
+  }, []);
 
   return null;
 }

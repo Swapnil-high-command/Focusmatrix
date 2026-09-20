@@ -306,3 +306,7 @@
   .session-bar { padding: 0.4rem 0.75rem; }
   .nav-btn span.label { display: none; }
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

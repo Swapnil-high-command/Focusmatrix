@@ -6,6 +6,7 @@ import Dashboard from "./components/Dashboard";
 import AuthPage from "./pages/AuthPage";
 import SessionHistory from "./pages/SessionHistory";
 import TeacherDashboard from "./pages/TeacherDashboard";
+import { StudentLiveRoom } from "./pages/LiveClassRoom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useSocket } from "./hooks/useSocket";
 import { saveSession } from "./api";
@@ -20,52 +21,47 @@ function ClassroomApp() {
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionStart, setSessionStart] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [liveClassActive, setLiveClassActive] = useState(false);
+  const [inClass, setInClass] = useState(false);
+  const [classError, setClassError] = useState("");
 
   const [analytics, setAnalytics] = useState({
-    faceStatus: "No Face",
-    eyeContact: "Unknown",
-    blinkCount: 0,
-    headPose: "Unknown",
-    emotion: "Neutral",
-    faceVisibleTime: 0,
-    faceMissingTime: 0,
-    eyeContactTime: 0,
-    lookingAwayTime: 0,
-    longestEyeClosure: 0,
-    drowsinessEvents: 0,
-    yawnCount: 0,
-    totalYawnTime: 0,
-    longestYawn: 0,
-    currentGesture: "None",
-    gestureCounts: {},
+    faceStatus: "No Face", eyeContact: "Unknown", blinkCount: 0,
+    headPose: "Unknown", emotion: "Neutral", faceVisibleTime: 0,
+    faceMissingTime: 0, eyeContactTime: 0, lookingAwayTime: 0,
+    longestEyeClosure: 0, drowsinessEvents: 0, yawnCount: 0,
+    totalYawnTime: 0, longestYawn: 0, currentGesture: "None", gestureCounts: {},
   });
 
-  const { emitAnalytics } = useSocket({
+  const socket = useSocket({
     role: user?.role,
-    studentId: user?.id,
+    studentId:   user?.id,
     studentName: user?.name,
+    onClassState:       (d) => setLiveClassActive(!!d),
+    onClassStarted:     ()  => setLiveClassActive(true),
+    onClassEnded:       ()  => { setLiveClassActive(false); setInClass(false); },
+    onClassJoinSuccess: ()  => { setInClass(true); setClassError(""); },
+    onClassJoinError:   ({ message }) => setClassError(message),
   });
 
   useEffect(() => {
     if (user?.role !== "student") return;
-    const interval = setInterval(() => {
-      emitAnalytics({ ...analytics, attentionScore: calculateAttentionScore(analytics) });
+    const id = setInterval(() => {
+      socket.emitAnalytics({ ...analytics, attentionScore: calculateAttentionScore(analytics) });
     }, 3000);
-    return () => clearInterval(interval);
+    return () => clearInterval(id);
   }, [analytics, user]);
 
   async function handleEndSession() {
     setSaving(true);
     setSessionActive(false);
-    const attentionScore = calculateAttentionScore(analytics);
-    const studentStatus = getStudentStatus(analytics).status;
     try {
       await saveSession({
         ...analytics,
-        attentionScore,
-        studentStatus,
-        startedAt: new Date(sessionStart).toISOString(),
-        endedAt: new Date().toISOString(),
+        attentionScore: calculateAttentionScore(analytics),
+        studentStatus:  getStudentStatus(analytics).status,
+        startedAt:  new Date(sessionStart).toISOString(),
+        endedAt:    new Date().toISOString(),
         durationMs: Date.now() - sessionStart,
       });
       alert("✅ Session saved successfully!");
@@ -77,6 +73,16 @@ function ClassroomApp() {
   }
 
   if (!user) return <AuthPage />;
+
+  // Student in live class — show full-screen live room with the SAME socket
+  if (user.role === "student" && inClass) {
+    return (
+      <StudentLiveRoom
+        user={user}
+        onLeave={() => setInClass(false)}
+      />
+    );
+  }
 
   const initials = user.name?.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
 
@@ -119,7 +125,7 @@ function ClassroomApp() {
 
       {/* ── Pages ── */}
       {page === "history" && <SessionHistory />}
-      {page === "teacher" && <TeacherDashboard />}
+      {page === "teacher" && <TeacherDashboard user={user} />}
 
       {/* ── Monitor (always mounted to preserve counts) ── */}
       <div style={{ display: page === "monitor" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -141,6 +147,16 @@ function ClassroomApp() {
               Recording
             </div>
           )}
+
+          {/* Live Class join for students */}
+          {user?.role === "student" && liveClassActive && !inClass && (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <button className="session-btn start" style={{ background: "#6366f1" }} onClick={() => socket.joinClass()}>
+                🏫 Join Live Class
+              </button>
+              {classError && <span style={{ fontSize: "0.75rem", color: "#ef4444" }}>{classError}</span>}
+            </div>
+          )}
         </div>
 
         {/* Camera + Dashboard */}
@@ -159,6 +175,22 @@ function ClassroomApp() {
                   {analytics.emotion}
                 </div>
               </div>
+              {/* Loading overlay while models initialise */}
+              {analytics.faceStatus === "No Face" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(8,11,20,0.7)", gap: "0.75rem", pointerEvents: "none" }}>
+                  <div style={{ width: 36, height: 36, border: "3px solid #6366f1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>Starting camera & loading AI models…</span>
+                </div>
+              )}
+              {(analytics.faceStatus === "Camera Error" || analytics.faceStatus === "Model Load Failed" || analytics.faceStatus === "Startup Error") && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(8,11,20,0.85)", gap: "0.5rem", pointerEvents: "none" }}>
+                  <span style={{ fontSize: "2rem" }}>⚠️</span>
+                  <span style={{ color: "#f87171", fontWeight: 600 }}>{analytics.faceStatus}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.78rem", textAlign: "center", padding: "0 1rem" }}>
+                    {analytics.faceStatus === "Camera Error" ? "Allow camera access in your browser and reload." : "Check your internet connection and reload."}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

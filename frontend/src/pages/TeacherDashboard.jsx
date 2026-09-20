@@ -1,25 +1,46 @@
 import { useState, useEffect } from "react";
 import { getLeaderboard, getClassAnalytics } from "../api";
 import { useSocket } from "../hooks/useSocket";
+import { TeacherLiveRoom } from "./LiveClassRoom";
 
-export default function TeacherDashboard() {
+const MAX_STUDENTS = 10;
+
+export default function TeacherDashboard({ user }) {
   const [liveStudents, setLiveStudents] = useState({});
-  const [alerts, setAlerts] = useState([]);
-  const [leaderboard, setLeaderboard] = useState([]);
-  const [classStats, setClassStats] = useState([]);
-  const [tab, setTab] = useState("live");
+  const [alerts, setAlerts]             = useState([]);
+  const [leaderboard, setLeaderboard]   = useState([]);
+  const [classStats, setClassStats]     = useState([]);
+  const [tab, setTab]                   = useState("live");
+  const [classActive, setClassActive]   = useState(false);
+  const [classInfo, setClassInfo]       = useState(null);
+  const [inLiveRoom, setInLiveRoom]     = useState(false);
 
   useEffect(() => {
     getLeaderboard().then(setLeaderboard).catch(() => {});
     getClassAnalytics().then(setClassStats).catch(() => {});
   }, []);
 
-  useSocket({
+  const socket = useSocket({
     role: "teacher",
-    onStudentAnalytics: (data) => setLiveStudents((prev) => ({ ...prev, [data.studentId]: data })),
-    onStudentAlert: (data) => setAlerts((prev) => [data, ...prev].slice(0, 30)),
-    onStudentLeft: (data) => setLiveStudents((prev) => { const n = { ...prev }; delete n[data.studentId]; return n; }),
+    onStudentAnalytics: (d) => setLiveStudents((p) => ({ ...p, [d.studentId]: d })),
+    onStudentAlert:     (d) => setAlerts((p) => [d, ...p].slice(0, 30)),
+    onStudentLeft:      (d) => setLiveStudents((p) => { const n = { ...p }; delete n[d.studentId]; return n; }),
+    onClassState:       (d) => { if (d) { setClassActive(true); setClassInfo(d); } },
+    onClassStarted:     (d) => { setClassActive(true); setClassInfo(d); },
+    onClassEnded:       ()  => { setClassActive(false); setClassInfo(null); setInLiveRoom(false); },
+    onClassStudentJoined: (d) => setClassInfo((p) => p ? { ...p, studentCount: d.count } : p),
+    onClassStudentLeft:   (d) => setClassInfo((p) => p ? { ...p, studentCount: d.count } : p),
   });
+
+  // If teacher is in live room, show it full-page (same socket passed down)
+  if (inLiveRoom) {
+    return (
+      <TeacherLiveRoom
+        user={user}
+        onEnd={() => { setInLiveRoom(false); setClassActive(false); setClassInfo(null); }}
+      />
+    );
+  }
 
   const liveList = Object.values(liveStudents);
   const unreadAlerts = alerts.length;
@@ -36,6 +57,37 @@ export default function TeacherDashboard() {
           <StatPill icon="🟢" label="Online" value={liveList.length} color="#22c55e" />
           <StatPill icon="🚨" label="Alerts" value={unreadAlerts} color="#ef4444" />
           <StatPill icon="📅" label="Sessions" value={classStats.reduce((a, s) => a + (s.total_sessions || 0), 0)} color="#6366f1" />
+        </div>
+      </div>
+
+      {/* Live Class Banner */}
+      <div style={s.classBanner}>
+        <div style={s.classInfo}>
+          {classActive ? (
+            <>
+              <span style={s.liveDot} />
+              <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>Live Class Active</span>
+              <span style={s.classSeat}>{classInfo?.studentCount ?? 0} / {MAX_STUDENTS} students</span>
+            </>
+          ) : (
+            <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No active class — start one to go live</span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {classActive && (
+            <button style={{ ...s.classBtn, background: "#6366f1" }} onClick={() => setInLiveRoom(true)}>
+              📺 Open Live Room
+            </button>
+          )}
+          <button
+            style={{ ...s.classBtn, background: classActive ? "#ef4444" : "#22c55e" }}
+            onClick={classActive
+              ? () => { socket.endClass(); setClassActive(false); setClassInfo(null); }
+              : () => { socket.startClass(user?.name || "Teacher"); setInLiveRoom(true); }
+            }
+          >
+            {classActive ? "⏹ End Class" : "▶ Start Live Class"}
+          </button>
         </div>
       </div>
 
@@ -272,4 +324,11 @@ const s = {
   leaderScore: { fontWeight: "700", fontSize: "0.9rem", minWidth: "40px", textAlign: "right", flexShrink: 0 },
 
   empty: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.5rem", minHeight: "40vh" },
+
+  // Live class banner
+  classBanner: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "0.75rem 1rem", marginBottom: "1.25rem", gap: "1rem", flexWrap: "wrap" },
+  classInfo: { display: "flex", alignItems: "center", gap: "0.6rem" },
+  liveDot: { width: "10px", height: "10px", borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e", flexShrink: 0, animation: "pulse 1.5s infinite" },
+  classSeat: { background: "rgba(99,102,241,0.12)", color: "#6366f1", borderRadius: "999px", padding: "0.15rem 0.6rem", fontSize: "0.75rem", fontWeight: "600" },
+  classBtn: { padding: "0.4rem 1.1rem", borderRadius: "999px", border: "none", color: "#fff", fontWeight: "600", fontSize: "0.82rem", cursor: "pointer", fontFamily: "Inter,sans-serif" },
 };

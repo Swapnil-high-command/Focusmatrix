@@ -4,55 +4,81 @@ import { io } from "socket.io-client";
 const SOCKET_URL =
   import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:5000";
 
+// ── Single socket instance ────────────────────────────────────────────────────
+let _socket = null;
+function getSocket() {
+  if (!_socket) {
+    _socket = io(SOCKET_URL, { reconnectionAttempts: 10, timeout: 8000 });
+  }
+  return _socket;
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
 export function useSocket({
-  role,
-  studentId,
-  studentName,
-  onStudentAnalytics,
-  onStudentAlert,
-  onStudentLeft,
-}) {
-  const socketRef = useRef(null);
+  role, studentId, studentName,
+  onStudentAnalytics, onStudentAlert, onStudentLeft,
+  onClassStarted, onClassEnded, onClassState,
+  onClassStudentJoined, onClassStudentLeft,
+  onClassJoinError, onClassJoinSuccess, onClassTeacherInfo,
+  onWebrtcOffer, onWebrtcAnswer, onWebrtcIce,
+} = {}) {
 
-  // Keep callback refs fresh so socket always calls the latest version
-  const onAnalyticsRef = useRef(onStudentAnalytics);
-  const onAlertRef = useRef(onStudentAlert);
-  const onLeftRef = useRef(onStudentLeft);
-
-  useEffect(() => { onAnalyticsRef.current = onStudentAnalytics; }, [onStudentAnalytics]);
-  useEffect(() => { onAlertRef.current = onStudentAlert; }, [onStudentAlert]);
-  useEffect(() => { onLeftRef.current = onStudentLeft; }, [onStudentLeft]);
+  // Always-fresh ref — no stale closures
+  const cb = useRef({});
+  cb.current = {
+    onStudentAnalytics, onStudentAlert, onStudentLeft,
+    onClassStarted, onClassEnded, onClassState,
+    onClassStudentJoined, onClassStudentLeft,
+    onClassJoinError, onClassJoinSuccess, onClassTeacherInfo,
+    onWebrtcOffer, onWebrtcAnswer, onWebrtcIce,
+  };
 
   useEffect(() => {
-    let socket;
-    try {
-      socket = io(SOCKET_URL, { reconnectionAttempts: 3, timeout: 5000 });
-      socketRef.current = socket;
+    const socket = getSocket();
 
-      socket.on("connect", () => {
-        if (role === "student") {
-          socket.emit("student:join", { studentId, studentName });
-        } else if (role === "teacher") {
-          socket.emit("teacher:join");
-        }
-      });
-
-      socket.on("connect_error", () => {});
-
-      socket.on("student:analytics", (data) => onAnalyticsRef.current?.({ ...data, studentId: String(data.studentId) }));
-      socket.on("student:alert", (data) => onAlertRef.current?.(data));
-      socket.on("student:left", (data) => onLeftRef.current?.({ ...data, studentId: String(data.studentId) }));
-
-    } catch {
-      // Socket unavailable — app still works without real-time
+    function onConnect() {
+      if (role === "student") socket.emit("student:join", { studentId, studentName });
+      else if (role === "teacher") socket.emit("teacher:join");
     }
+    if (socket.connected) onConnect();
+    socket.on("connect", onConnect);
 
-    return () => socket?.disconnect();
+    // Each handler calls cb.current so it always uses the latest callback
+    const h = {
+      "student:analytics":    (d) => cb.current.onStudentAnalytics?.({ ...d, studentId: String(d.studentId) }),
+      "student:alert":        (d) => cb.current.onStudentAlert?.(d),
+      "student:left":         (d) => cb.current.onStudentLeft?.({ ...d, studentId: String(d.studentId) }),
+      "class:state":          (d) => cb.current.onClassState?.(d),
+      "class:started":        (d) => cb.current.onClassStarted?.(d),
+      "class:ended":          (d) => cb.current.onClassEnded?.(d),
+      "class:student:joined": (d) => cb.current.onClassStudentJoined?.(d),
+      "class:student:left":   (d) => cb.current.onClassStudentLeft?.(d),
+      "class:join:error":     (d) => cb.current.onClassJoinError?.(d),
+      "class:join:success":   (d) => cb.current.onClassJoinSuccess?.(d),
+      "class:teacher:info":   (d) => cb.current.onClassTeacherInfo?.(d),
+      "webrtc:offer":         (d) => cb.current.onWebrtcOffer?.(d),
+      "webrtc:answer":        (d) => cb.current.onWebrtcAnswer?.(d),
+      "webrtc:ice":           (d) => cb.current.onWebrtcIce?.(d),
+    };
+
+    Object.entries(h).forEach(([ev, fn]) => socket.on(ev, fn));
+
+    return () => {
+      socket.off("connect", onConnect);
+      Object.entries(h).forEach(([ev, fn]) => socket.off(ev, fn));
+    };
   }, [role, studentId, studentName]);
 
-  function emitAnalytics(data) {
-    socketRef.current?.emit("analytics:update", data);
-  }
+  const emit = (ev, data) => getSocket().emit(ev, data);
 
-  return { emitAnalytics };
+  return {
+    emitAnalytics: (data)          => emit("analytics:update", data),
+    startClass:    (name)          => emit("class:start", { teacherName: name }),
+    endClass:      ()              => emit("class:end"),
+    joinClass:     ()              => emit("class:student:join", { studentId, studentName }),
+    leaveClass:    ()              => emit("class:student:leave"),
+    sendOffer:     (to, offer)     => emit("webrtc:offer",  { to, offer }),
+    sendAnswer:    (to, answer)    => emit("webrtc:answer", { to, answer }),
+    sendIce:       (to, candidate) => emit("webrtc:ice",    { to, candidate }),
+  };
 }
