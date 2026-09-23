@@ -79,6 +79,7 @@ function ClassroomApp() {
     return (
       <StudentLiveRoom
         user={user}
+        socket={socket}
         onLeave={() => setInClass(false)}
       />
     );
@@ -151,7 +152,7 @@ function ClassroomApp() {
           {/* Live Class join for students */}
           {user?.role === "student" && liveClassActive && !inClass && (
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <button className="session-btn start" style={{ background: "#6366f1" }} onClick={() => socket.joinClass()}>
+              <button className="session-btn start" style={{ background: "#6366f1" }} onClick={() => setInClass(true)}>
                 🏫 Join Live Class
               </button>
               {classError && <span style={{ fontSize: "0.75rem", color: "#ef4444" }}>{classError}</span>}

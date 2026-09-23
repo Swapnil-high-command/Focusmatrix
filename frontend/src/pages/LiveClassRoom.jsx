@@ -126,7 +126,7 @@ export function TeacherLiveRoom({ user, onEnd }) {
 }
 
 // ── Student Live Room ─────────────────────────────────────────────────────────
-export function StudentLiveRoom({ user, onLeave }) {
+export function StudentLiveRoom({ user, socket, onLeave }) {
   const localVideoRef = useRef(null);
   const [teacherStream, setTeacherStream] = useState(null);
   const [camReady, setCamReady] = useState(false);
@@ -146,28 +146,30 @@ export function StudentLiveRoom({ user, onLeave }) {
     sendIce:    (to, candidate) => webrtcRef.current.sendIce?.(to, candidate),
   });
 
-  const socket = useSocket({
+  useSocket({
     role: "student",
     studentId:   user.id,
     studentName: user.name,
     onWebrtcOffer:  ({ from, offer })     => { console.log("[StudentRoom] got offer from", from); handleOffer(from, offer); },
     onWebrtcAnswer: ({ from, answer })    => handleAnswer(from, answer),
     onWebrtcIce:    ({ from, candidate }) => handleIce(from, candidate),
-    onClassEnded:   () => { closeAll(); onLeave(); },
+    onClassEnded:       () => { closeAll(); onLeave(); },
+    onClassJoinError:   ({ message }) => setError(message),
   });
 
   useEffect(() => {
     webrtcRef.current = socket;
   });
 
-  // Start student camera
+  // Start student camera, then notify teacher we're ready
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then((stream) => {
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         setLocalStream(stream);
         setCamReady(true);
-        console.log("[StudentRoom] camera ready");
+        console.log("[StudentRoom] camera ready, notifying teacher");
+        socket.joinClass();
       })
       .catch(() => setError("Camera/mic access denied."));
     return () => closeAll();
@@ -188,21 +190,25 @@ export function StudentLiveRoom({ user, onLeave }) {
 
       {error && <div style={s.errorBar}>{error}</div>}
 
-      <div style={s.roomBody}>
-        <div style={s.section}>
+      <div style={s.studentBody}>
+        {/* Teacher — big frame */}
+        <div style={s.teacherSection}>
           <p style={s.sectionLabel}>👨🏫 Teacher</p>
-          <VideoTile stream={teacherStream} label="Teacher" />
+          <div style={s.teacherTile}>
+            <VideoTile stream={teacherStream} label="Teacher" />
+          </div>
         </div>
 
-        <div style={s.section}>
-          <p style={s.sectionLabel}>📷 Your Camera</p>
-          <div style={s.tile}>
+        {/* Student — small pip */}
+        <div style={s.pipSection}>
+          <p style={s.sectionLabel}>📷 You</p>
+          <div style={s.pipTile}>
             <video ref={localVideoRef} autoPlay playsInline muted style={s.video} />
             <div style={s.tileLabel}>You ({user.name})</div>
             {!camReady && <div style={s.tileOverlay}><div style={s.spinner} /></div>}
           </div>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: "0.5rem" }}>
-            💡 AI tracking continues in the background
+          <p style={{ color: "var(--text-muted)", fontSize: "0.7rem", marginTop: "0.4rem" }}>
+            💡 AI tracking active
           </p>
         </div>
       </div>
@@ -218,6 +224,11 @@ const s = {
   endBtn:       { padding: "0.4rem 1rem", borderRadius: "8px", border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", fontFamily: "Inter,sans-serif" },
   errorBar:     { background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171", padding: "0.5rem 1.5rem", fontSize: "0.82rem", flexShrink: 0 },
   roomBody:     { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem", padding: "1.25rem 1.5rem", flex: 1, minHeight: 0, overflow: "auto" },
+  studentBody:  { display: "flex", flexDirection: "column", gap: "1rem", padding: "1.25rem 1.5rem", flex: 1, minHeight: 0, overflow: "auto" },
+  teacherSection: { display: "flex", flexDirection: "column", gap: "0.5rem", flex: 1 },
+  teacherTile:  { position: "relative", borderRadius: "14px", overflow: "hidden", background: "var(--bg-card)", border: "2px solid var(--accent)", aspectRatio: "16/9", width: "100%" },
+  pipSection:   { display: "flex", flexDirection: "column", gap: "0.4rem" },
+  pipTile:      { position: "relative", borderRadius: "10px", overflow: "hidden", background: "var(--bg-card)", border: "1px solid var(--border)", aspectRatio: "16/9", width: "220px" },
   section:      { display: "flex", flexDirection: "column", gap: "0.5rem" },
   sectionLabel: { fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px", color: "var(--text-muted)", margin: 0 },
   grid:         { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.6rem" },

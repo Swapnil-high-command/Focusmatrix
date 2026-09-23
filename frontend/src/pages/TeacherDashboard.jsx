@@ -103,6 +103,7 @@ export default function TeacherDashboard({ user }) {
       {/* Live Students */}
       {tab === "live" && (
         <div>
+          <ClassAvgDropdown students={liveList} />
           {liveList.length === 0 ? (
             <EmptyState icon="📡" text="No students online" sub="Students appear here when they open the Monitor page" />
           ) : (
@@ -201,9 +202,86 @@ export default function TeacherDashboard({ user }) {
   );
 }
 
+function ClassAvgDropdown({ students }) {
+  const [open, setOpen] = useState(true);
+  const n = students.length;
+
+  const avg = (key) => n === 0 ? 0 : Math.round(students.reduce((s, st) => s + (st[key] ?? 0), 0) / n);
+  const avgAttn    = avg("attentionScore");
+  const avgBlinks  = avg("blinkCount");
+  const avgYawns   = avg("yawnCount");
+  const avgDrowsy  = avg("drowsinessEvents");
+  const focusedPct = n === 0 ? 0 : Math.round(students.filter(st => st.eyeContact === "Looking at Camera").length / n * 100);
+
+  // Merge all gesture counts
+  const gestures = {};
+  students.forEach(st => {
+    Object.entries(st.gestureCounts || {}).forEach(([g, c]) => {
+      gestures[g] = (gestures[g] || 0) + c;
+    });
+  });
+  const gestureEntries = Object.entries(gestures).sort((a, b) => b[1] - a[1]);
+
+  const { color } = scoreStyle(avgAttn);
+
+  return (
+    <div style={s.avgWrap}>
+      <button style={s.avgHeader} onClick={() => setOpen(o => !o)}>
+        <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>📊 Class Average — {n} student{n !== 1 ? "s" : ""}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{ ...s.liveScore, background: scoreStyle(avgAttn).bg, color, fontSize: "0.8rem" }}>{avgAttn}% avg</span>
+          <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>{open ? "▲" : "▼"}</span>
+        </div>
+      </button>
+      {open && (
+        <div style={s.avgBody}>
+          {n === 0 ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No students online yet — data will appear here when students connect.</p>
+          ) : (
+            <>
+              <div style={s.avgGrid}>
+                <AvgStat icon="🎯" label="Avg Attention" value={`${avgAttn}%`} color={color} />
+                <AvgStat icon="👀" label="Focused" value={`${focusedPct}%`} color={focusedPct >= 60 ? "#22c55e" : "#ef4444"} />
+                <AvgStat icon="😉" label="Avg Blinks" value={avgBlinks} />
+                <AvgStat icon="🥱" label="Avg Yawns" value={avgYawns} color={avgYawns >= 3 ? "#ef4444" : undefined} />
+                <AvgStat icon="😴" label="Avg Drowsy" value={avgDrowsy} color={avgDrowsy > 0 ? "#ef4444" : undefined} />
+              </div>
+              {gestureEntries.length > 0 && (
+                <div style={{ marginTop: "0.75rem" }}>
+                  <p style={{ ...s.sectionLabel, marginBottom: "0.4rem" }}>🤚 Gesture Counts (all students)</p>
+                  <div style={s.gestureGrid}>
+                    {gestureEntries.map(([g, c]) => (
+                      <div key={g} style={s.gestureChip}>
+                        <span style={{ fontSize: "0.82rem" }}>{g}</span>
+                        <span style={s.gestureBadge}>{c}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AvgStat({ icon, label, value, color }) {
+  return (
+    <div style={s.avgStat}>
+      <span style={{ fontSize: "1.1rem" }}>{icon}</span>
+      <span style={{ fontSize: "0.88rem", fontWeight: 700, color: color || "var(--text-primary)" }}>{value}</span>
+      <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{label}</span>
+    </div>
+  );
+}
+
 function LiveCard({ student: st }) {
+  const [open, setOpen] = useState(false);
   const score = st.attentionScore ?? 0;
   const { color, bg } = scoreStyle(score);
+  const gestureEntries = Object.entries(st.gestureCounts || {}).sort((a, b) => b[1] - a[1]);
   return (
     <div style={s.liveCard}>
       <div style={s.liveCardTop}>
@@ -215,6 +293,7 @@ function LiveCard({ student: st }) {
           <p style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{st.emotion}</p>
         </div>
         <div style={{ ...s.liveScore, background: bg, color }}>{score}%</div>
+        <button style={s.chevron} onClick={() => setOpen(o => !o)}>{open ? "▲" : "▼"}</button>
       </div>
       <div style={s.liveStats}>
         <LiveStat icon="👀" label={st.eyeContact === "Looking at Camera" ? "Focused" : "Away"} ok={st.eyeContact === "Looking at Camera"} />
@@ -222,6 +301,24 @@ function LiveCard({ student: st }) {
         <LiveStat icon="🥱" label={`${st.yawnCount} yawns`} ok={st.yawnCount < 3} />
         <LiveStat icon="😉" label={`${st.blinkCount} blinks`} ok />
       </div>
+      {open && gestureEntries.length > 0 && (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.5rem" }}>
+          <p style={{ ...s.sectionLabel, marginBottom: "0.35rem" }}>🤚 Gestures</p>
+          <div style={s.gestureGrid}>
+            {gestureEntries.map(([g, c]) => (
+              <div key={g} style={s.gestureChip}>
+                <span style={{ fontSize: "0.78rem" }}>{g}</span>
+                <span style={s.gestureBadge}>{c}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {open && gestureEntries.length === 0 && (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.5rem" }}>
+          <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>🤚 No gestures detected yet</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -289,6 +386,20 @@ const s = {
   liveScore: { padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.82rem", fontWeight: "700", flexShrink: 0 },
   liveStats: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.3rem" },
   liveStat: { fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.3rem" },
+  chevron: { background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.7rem", padding: "0.2rem", flexShrink: 0 },
+
+  // Class avg dropdown
+  avgWrap: { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", marginBottom: "1rem", overflow: "hidden" },
+  avgHeader: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)", fontFamily: "Inter,sans-serif" },
+  avgBody: { padding: "0 1rem 1rem" },
+  avgGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: "0.5rem" },
+  avgStat: { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "0.5rem 0.4rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" },
+
+  // Gestures
+  sectionLabel: { fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px", color: "var(--text-muted)", margin: 0 },
+  gestureGrid: { display: "flex", flexWrap: "wrap", gap: "0.4rem" },
+  gestureChip: { display: "flex", alignItems: "center", gap: "0.35rem", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "999px", padding: "0.2rem 0.6rem" },
+  gestureBadge: { background: "var(--accent)", color: "#fff", borderRadius: "999px", fontSize: "0.65rem", fontWeight: 700, padding: "0.05rem 0.4rem" },
 
   // Alerts
   alertList: { display: "flex", flexDirection: "column", gap: "0.5rem" },
