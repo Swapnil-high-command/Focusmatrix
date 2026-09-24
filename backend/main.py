@@ -5,17 +5,16 @@ import os
 
 app = FastAPI()
 
-# Get the absolute path of the directory this file is in (e.g., /opt/render/project/src/backend)
+# Get the absolute path of the directory this file is in
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Go up one level to the project root, then into the frontend folder
-FRONTEND_DIR = os.path.join(BASE_DIR, "..", "frontend")
+# Point to the 'dist' folder inside 'frontend'
+FRONTEND_DIST_DIR = os.path.join(BASE_DIR, "..", "frontend", "dist")
 
+# 1. Serve the BUILT index.html
 @app.get("/")
 def home():
-    # Use the absolute path to ensure it works regardless of where the server starts
-    file_path = os.path.join(FRONTEND_DIR, "index.html")
-    return FileResponse(file_path)
+    return FileResponse(os.path.join(FRONTEND_DIST_DIR, "index.html"))
 
-# Optional: Mount static files correctly
-# app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
+# 2. Mount the assets folder (this is where Vite puts the compiled JS/CSS)
+app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST_DIR, "assets")), name="assets")
