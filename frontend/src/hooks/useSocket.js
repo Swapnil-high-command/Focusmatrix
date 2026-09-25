@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL =
+ const SOCKET_URL =
   import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:5000";
-
 // ── Single socket instance ────────────────────────────────────────────────────
 let _socket = null;
 function getSocket() {
