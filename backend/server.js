@@ -3,6 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const path = require("path");
 const { initDB } = require("./db");
 
 const authRoutes = require("./routes/auth");
@@ -23,7 +24,10 @@ app.use("/api/auth", authRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/analytics", analyticsRoutes);
 
-app.get("/", (_, res) => res.json({ status: "AI Classroom Backend running 🚀" }));
+// Serve frontend
+const FRONTEND_DIST = path.join(__dirname, "../frontend/dist");
+app.use(express.static(FRONTEND_DIST));
+app.get("*", (_, res) => res.sendFile(path.join(FRONTEND_DIST, "index.html")));
 
 // ─── Socket.io ─────────────────────────────────────────────────────────────────
 const ALERT_THRESHOLDS = { attentionScore: 40, drowsinessEvents: 1, yawnCount: 3 };
