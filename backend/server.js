@@ -34,7 +34,11 @@ const ALERT_THRESHOLDS = { attentionScore: 40, drowsinessEvents: 1, yawnCount: 3
 const MAX_STUDENTS = 10; // ← increase this to allow more students
 
 // Live class state
-let liveClass = null; // { teacherName, startedAt, studentCount }
+let liveClass = null; // { teacherName, startedAt, studentCount, classCode }
+
+function generateCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
 io.on("connection", (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`);
@@ -56,10 +60,12 @@ io.on("connection", (socket) => {
 
   // ── Live Class ──────────────────────────────────────────────────────────────
   socket.on("class:start", ({ teacherName }) => {
-    liveClass = { teacherName, teacherSocketId: socket.id, startedAt: Date.now(), studentCount: 0 };
+    const classCode = generateCode();
+    liveClass = { teacherName, teacherSocketId: socket.id, startedAt: Date.now(), studentCount: 0, classCode };
     socket.join("liveclass");
+    // Include classCode in class:started so teacher gets it in one event
     io.emit("class:started", liveClass);
-    console.log(`🏫 Live class started by ${teacherName}`);
+    console.log(`🏫 Live class started by ${teacherName} — code: ${classCode}`);
   });
 
   socket.on("class:end", () => {
@@ -68,8 +74,9 @@ io.on("connection", (socket) => {
     console.log(`🏫 Live class ended`);
   });
 
-  socket.on("class:student:join", ({ studentId, studentName }) => {
+  socket.on("class:student:join", ({ studentId, studentName, classCode }) => {
     if (!liveClass) { socket.emit("class:join:error", { message: "No active class" }); return; }
+    if (classCode?.toUpperCase() !== liveClass.classCode) { socket.emit("class:join:error", { message: "Invalid class code" }); return; }
     if (liveClass.studentCount >= MAX_STUDENTS) { socket.emit("class:join:error", { message: `Class is full (max ${MAX_STUDENTS} students)` }); return; }
     liveClass.studentCount++;
     socket.inClass = true;
@@ -89,6 +96,15 @@ io.on("connection", (socket) => {
       socket.leave("liveclass");
       if (liveClass) io.to(liveClass.teacherSocketId).emit("class:student:left", { studentId: socket.studentId, studentName: socket.studentName, socketId: socket.id, count: liveClass.studentCount });
     }
+  });
+
+  // Student signals camera is ready after being admitted — triggers WebRTC offer from teacher
+  socket.on("class:student:ready", () => {
+    if (!liveClass || !socket.inClass) return;
+    io.to(liveClass.teacherSocketId).emit("class:student:joined", {
+      studentId: socket.studentId, studentName: socket.studentName,
+      socketId: socket.id, count: liveClass.studentCount,
+    });
   });
 
   // ── WebRTC Signaling ────────────────────────────────────────────────────────

@@ -23,11 +23,13 @@ function VideoTile({ stream, label, muted = false }) {
 }
 
 // ── Teacher Live Room ─────────────────────────────────────────────────────────
-export function TeacherLiveRoom({ user, onEnd }) {
+export function TeacherLiveRoom({ user, classCode, onEnd }) {
   const localVideoRef = useRef(null);
   const [studentStreams, setStudentStreams] = useState({});
   const [camReady, setCamReady] = useState(false);
   const [error, setError]       = useState("");
+  const [audioOn, setAudioOn]   = useState(true);
+  const [videoOn, setVideoOn]   = useState(true);
 
   const onTrack = useCallback((socketId, stream) => {
     setStudentStreams((prev) => ({ ...prev, [socketId]: { ...prev[socketId], stream } }));
@@ -36,7 +38,7 @@ export function TeacherLiveRoom({ user, onEnd }) {
   // callPeer/handleAnswer/handleIce need to be stable refs so useSocket callbacks stay fresh
   const webrtcRef = useRef({});
 
-  const { setLocalStream, callPeer, handleAnswer, handleIce, removePeer, closeAll } = useWebRTC({
+  const { setLocalStream, callPeer, handleAnswer, handleIce, removePeer, closeAll, toggleAudio, toggleVideo } = useWebRTC({
     onTrack,
     sendOffer:  (to, offer)     => webrtcRef.current.sendOffer?.(to, offer),
     sendAnswer: (to, answer)    => webrtcRef.current.sendAnswer?.(to, answer),
@@ -87,10 +89,26 @@ export function TeacherLiveRoom({ user, onEnd }) {
           <span style={s.liveBadge}>● LIVE</span>
           <span style={{ fontWeight: 700, fontSize: "1rem" }}>Your Live Class</span>
           <span style={s.countBadge}>{students.length} student{students.length !== 1 ? "s" : ""}</span>
+          {classCode && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "8px", padding: "0.15rem 0.7rem" }}>
+              <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Code:</span>
+              <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: "1rem", letterSpacing: "0.15em", color: "#818cf8" }}>{classCode}</span>
+              <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.8rem", padding: 0, color: "var(--text-muted)" }}
+                onClick={() => navigator.clipboard.writeText(classCode)}>📋</button>
+            </div>
+          )}
         </div>
-        <button style={s.endBtn} onClick={() => { socket.endClass(); closeAll(); onEnd(); }}>
-          ⏹ End Class
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button style={s.mediaBtn} onClick={() => { toggleAudio(!audioOn); setAudioOn(!audioOn); }}>
+            {audioOn ? "🎙 Mic On" : "🔇 Mic Off"}
+          </button>
+          <button style={s.mediaBtn} onClick={() => { toggleVideo(!videoOn); setVideoOn(!videoOn); }}>
+            {videoOn ? "📷 Cam On" : "📷 Cam Off"}
+          </button>
+          <button style={s.endBtn} onClick={() => { socket.endClass(); closeAll(); onEnd(); }}>
+            ⏹ End Class
+          </button>
+        </div>
       </div>
 
       {error && <div style={s.errorBar}>{error}</div>}
@@ -99,9 +117,10 @@ export function TeacherLiveRoom({ user, onEnd }) {
         <div style={s.section}>
           <p style={s.sectionLabel}>📷 Your Camera</p>
           <div style={s.tile}>
-            <video ref={localVideoRef} autoPlay playsInline muted style={s.video} />
+            <video ref={localVideoRef} autoPlay playsInline muted style={{ ...s.video, opacity: videoOn ? 1 : 0 }} />
             <div style={s.tileLabel}>You (Teacher)</div>
             {!camReady && <div style={s.tileOverlay}><div style={s.spinner} /></div>}
+            {!videoOn && <div style={s.tileOverlay}><span style={{ fontSize: "1.5rem" }}>📷</span><span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Camera Off</span></div>}
           </div>
         </div>
 
@@ -131,6 +150,8 @@ export function StudentLiveRoom({ user, socket, onLeave }) {
   const [teacherStream, setTeacherStream] = useState(null);
   const [camReady, setCamReady] = useState(false);
   const [error, setError]       = useState("");
+  const [audioOn, setAudioOn]   = useState(true);
+  const [videoOn, setVideoOn]   = useState(true);
 
   const webrtcRef = useRef({});
 
@@ -139,7 +160,7 @@ export function StudentLiveRoom({ user, socket, onLeave }) {
     setTeacherStream(stream);
   }, []);
 
-  const { setLocalStream, handleOffer, handleAnswer, handleIce, closeAll } = useWebRTC({
+  const { setLocalStream, handleOffer, handleAnswer, handleIce, closeAll, toggleAudio, toggleVideo } = useWebRTC({
     onTrack,
     sendOffer:  (to, offer)     => webrtcRef.current.sendOffer?.(to, offer),
     sendAnswer: (to, answer)    => webrtcRef.current.sendAnswer?.(to, answer),
@@ -169,7 +190,7 @@ export function StudentLiveRoom({ user, socket, onLeave }) {
         setLocalStream(stream);
         setCamReady(true);
         console.log("[StudentRoom] camera ready, notifying teacher");
-        socket.joinClass();
+        socket.readyInClass();
       })
       .catch(() => setError("Camera/mic access denied."));
     return () => closeAll();
@@ -182,10 +203,18 @@ export function StudentLiveRoom({ user, socket, onLeave }) {
           <span style={s.liveBadge}>● LIVE</span>
           <span style={{ fontWeight: 700, fontSize: "1rem" }}>Live Class</span>
         </div>
-        <button style={{ ...s.endBtn, background: "#6366f1" }}
-          onClick={() => { socket.leaveClass(); closeAll(); onLeave(); }}>
-          🚪 Leave Class
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button style={s.mediaBtn} onClick={() => { toggleAudio(!audioOn); setAudioOn(!audioOn); }}>
+            {audioOn ? "🎙 Mic On" : "🔇 Mic Off"}
+          </button>
+          <button style={s.mediaBtn} onClick={() => { toggleVideo(!videoOn); setVideoOn(!videoOn); }}>
+            {videoOn ? "📷 Cam On" : "📷 Cam Off"}
+          </button>
+          <button style={{ ...s.endBtn, background: "#6366f1" }}
+            onClick={() => { socket.leaveClass(); closeAll(); onLeave(); }}>
+            🚪 Leave Class
+          </button>
+        </div>
       </div>
 
       {error && <div style={s.errorBar}>{error}</div>}
@@ -203,9 +232,10 @@ export function StudentLiveRoom({ user, socket, onLeave }) {
         <div style={s.pipSection}>
           <p style={s.sectionLabel}>📷 You</p>
           <div style={s.pipTile}>
-            <video ref={localVideoRef} autoPlay playsInline muted style={s.video} />
+            <video ref={localVideoRef} autoPlay playsInline muted style={{ ...s.video, opacity: videoOn ? 1 : 0 }} />
             <div style={s.tileLabel}>You ({user.name})</div>
             {!camReady && <div style={s.tileOverlay}><div style={s.spinner} /></div>}
+            {!videoOn && <div style={s.tileOverlay}><span style={{ fontSize: "1.2rem" }}>📷</span><span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>Camera Off</span></div>}
           </div>
           <p style={{ color: "var(--text-muted)", fontSize: "0.7rem", marginTop: "0.4rem" }}>
             💡 AI tracking active
@@ -238,4 +268,5 @@ const s = {
   tileOverlay:  { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.5rem", background: "rgba(8,11,20,0.75)" },
   spinner:      { width: 28, height: 28, border: "3px solid #6366f1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
   waitingBox:   { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.5rem", minHeight: 180, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px" },
+  mediaBtn:     { padding: "0.4rem 0.85rem", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)", fontWeight: 600, fontSize: "0.78rem", cursor: "pointer", fontFamily: "Inter,sans-serif" },
 };

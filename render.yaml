@@ -7,7 +7,7 @@ services:
     startCommand: npm start
     envVars:
       - key: CLIENT_URL
-        value: https://focusmatrix-frontend.onrender.com
+        value: https://your-netlify-app.netlify.app
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN

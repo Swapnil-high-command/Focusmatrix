@@ -114,5 +114,13 @@ export function useWebRTC({ onTrack, sendOffer, sendAnswer, sendIce }) {
     localStream.current = null;
   }, []);
 
-  return { setLocalStream, callPeer, handleOffer, handleAnswer, handleIce, removePeer, closeAll };
+  const toggleAudio = useCallback((enabled) => {
+    localStream.current?.getAudioTracks().forEach((t) => { t.enabled = enabled; });
+  }, []);
+
+  const toggleVideo = useCallback((enabled) => {
+    localStream.current?.getVideoTracks().forEach((t) => { t.enabled = enabled; });
+  }, []);
+
+  return { setLocalStream, callPeer, handleOffer, handleAnswer, handleIce, removePeer, closeAll, toggleAudio, toggleVideo };
 }

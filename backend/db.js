@@ -1,22 +1,12 @@
-const initSqlJs = require("sql.js");
-const fs = require("fs");
+const Database = require("better-sqlite3");
 const path = require("path");
 
 const DB_PATH = path.join(__dirname, "classroom.db");
 
-let db = null;
+const db = new Database(DB_PATH);
 
-async function initDB() {
-  const SQL = await initSqlJs();
-
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
-
-  db.run(`
+function initDB() {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -27,7 +17,7 @@ async function initDB() {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       student_id INTEGER NOT NULL,
@@ -66,39 +56,22 @@ async function initDB() {
     )
   `);
 
-  persist();
-  console.log("✅ SQLite (sql.js) database ready");
+  console.log("✅ SQLite (better-sqlite3) database ready");
+  return Promise.resolve();
 }
 
-// Save DB to disk after every write
-function persist() {
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
-}
-
-// Run a write statement and persist
 function run(sql, params = []) {
-  db.run(sql, params);
-  persist();
-  // Get last insert rowid
-  const result = db.exec("SELECT last_insert_rowid() as id");
-  return { lastInsertRowid: result[0]?.values[0][0] ?? null };
+  const stmt = db.prepare(sql);
+  const result = stmt.run(params);
+  return { lastInsertRowid: result.lastInsertRowid };
 }
 
-// Get one row
 function get(sql, params = []) {
-  const result = db.exec(sql, params);
-  if (!result.length || !result[0].values.length) return null;
-  const { columns, values } = result[0];
-  return Object.fromEntries(columns.map((c, i) => [c, values[0][i]]));
+  return db.prepare(sql).get(params) ?? null;
 }
 
-// Get all rows
 function all(sql, params = []) {
-  const result = db.exec(sql, params);
-  if (!result.length) return [];
-  const { columns, values } = result[0];
-  return values.map((row) => Object.fromEntries(columns.map((c, i) => [c, row[i]])));
+  return db.prepare(sql).all(params);
 }
 
 module.exports = { initDB, run, get, all };

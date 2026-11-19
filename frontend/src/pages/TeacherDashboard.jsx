@@ -1,49 +1,20 @@
 import { useState, useEffect } from "react";
 import { getLeaderboard, getClassAnalytics } from "../api";
-import { useSocket } from "../hooks/useSocket";
-import { TeacherLiveRoom } from "./LiveClassRoom";
 
 const MAX_STUDENTS = 10;
 
-export default function TeacherDashboard({ user }) {
-  const [liveStudents, setLiveStudents] = useState({});
-  const [alerts, setAlerts]             = useState([]);
-  const [leaderboard, setLeaderboard]   = useState([]);
-  const [classStats, setClassStats]     = useState([]);
-  const [tab, setTab]                   = useState("live");
-  const [classActive, setClassActive]   = useState(false);
-  const [classInfo, setClassInfo]       = useState(null);
-  const [inLiveRoom, setInLiveRoom]     = useState(false);
+export default function TeacherDashboard({ user, classCode, classActive, classInfo, liveStudents, alerts, onStartClass, onEndClass, onOpenLiveRoom }) {
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [classStats, setClassStats]   = useState([]);
+  const [tab, setTab]                 = useState("live");
 
   useEffect(() => {
     getLeaderboard().then(setLeaderboard).catch(() => {});
     getClassAnalytics().then(setClassStats).catch(() => {});
   }, []);
 
-  const socket = useSocket({
-    role: "teacher",
-    onStudentAnalytics: (d) => setLiveStudents((p) => ({ ...p, [d.studentId]: d })),
-    onStudentAlert:     (d) => setAlerts((p) => [d, ...p].slice(0, 30)),
-    onStudentLeft:      (d) => setLiveStudents((p) => { const n = { ...p }; delete n[d.studentId]; return n; }),
-    onClassState:       (d) => { if (d) { setClassActive(true); setClassInfo(d); } },
-    onClassStarted:     (d) => { setClassActive(true); setClassInfo(d); },
-    onClassEnded:       ()  => { setClassActive(false); setClassInfo(null); setInLiveRoom(false); },
-    onClassStudentJoined: (d) => setClassInfo((p) => p ? { ...p, studentCount: d.count } : p),
-    onClassStudentLeft:   (d) => setClassInfo((p) => p ? { ...p, studentCount: d.count } : p),
-  });
-
-  // If teacher is in live room, show it full-page (same socket passed down)
-  if (inLiveRoom) {
-    return (
-      <TeacherLiveRoom
-        user={user}
-        onEnd={() => { setInLiveRoom(false); setClassActive(false); setClassInfo(null); }}
-      />
-    );
-  }
-
-  const liveList = Object.values(liveStudents);
-  const unreadAlerts = alerts.length;
+  const liveList     = Object.values(liveStudents || {});
+  const unreadAlerts = (alerts || []).length;
 
   return (
     <div style={s.page}>
@@ -61,35 +32,63 @@ export default function TeacherDashboard({ user }) {
       </div>
 
       {/* Live Class Banner */}
-      <div style={s.classBanner}>
-        <div style={s.classInfo}>
-          {classActive ? (
-            <>
-              <span style={s.liveDot} />
-              <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>Live Class Active</span>
-              <span style={s.classSeat}>{classInfo?.studentCount ?? 0} / {MAX_STUDENTS} students</span>
-            </>
-          ) : (
-            <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No active class — start one to go live</span>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {classActive && (
-            <button style={{ ...s.classBtn, background: "#6366f1" }} onClick={() => setInLiveRoom(true)}>
-              📺 Open Live Room
-            </button>
-          )}
-          <button
-            style={{ ...s.classBtn, background: classActive ? "#ef4444" : "#22c55e" }}
-            onClick={classActive
-              ? () => { socket.endClass(); setClassActive(false); setClassInfo(null); }
-              : () => { socket.startClass(user?.name || "Teacher"); setInLiveRoom(true); }
-            }
-          >
-            {classActive ? "⏹ End Class" : "▶ Start Live Class"}
+      {!classActive ? (
+        <div style={s.startCard}>
+          <div>
+            <p style={{ fontWeight: 700, fontSize: "1rem", marginBottom: "0.2rem" }}>Start a Live Class</p>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>A join code and link will be generated for your students</p>
+          </div>
+          <button style={{ ...s.classBtn, background: "#22c55e" }} onClick={onStartClass}>
+            ▶ Start Live Class
           </button>
         </div>
-      </div>
+      ) : (
+        <div style={s.activeCard}>
+          {/* Top row */}
+          <div style={s.activeTop}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <span style={s.liveDot} />
+              <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>Live Class Active</span>
+              <span style={s.classSeat}>{classInfo?.studentCount ?? 0} / {MAX_STUDENTS} students</span>
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button style={{ ...s.classBtn, background: "#6366f1" }} onClick={onOpenLiveRoom}>📺 Open Live Room</button>
+              <button style={{ ...s.classBtn, background: "#ef4444" }} onClick={onEndClass}>
+                ⏹ End Class
+              </button>
+            </div>
+          </div>
+
+          {/* Code + Link row */}
+          {classCode && (
+            <div style={s.shareRow}>
+              {/* Code block */}
+              <div style={s.shareBlock}>
+                <p style={s.shareLabel}>🔑 Join Code</p>
+                <div style={s.codeDisplay}>
+                  <span style={s.codeText}>{classCode}</span>
+                  <button style={s.copyBtn} title="Copy code"
+                    onClick={() => navigator.clipboard.writeText(classCode)}>📋 Copy</button>
+                </div>
+                <p style={s.shareHint}>Share this code with students</p>
+              </div>
+
+              <div style={s.shareDivider} />
+
+              {/* Link block */}
+              <div style={s.shareBlock}>
+                <p style={s.shareLabel}>🔗 Join Link</p>
+                <div style={s.linkDisplay}>
+                  <span style={s.linkText}>{`${window.location.origin}?code=${classCode}`}</span>
+                  <button style={s.copyBtn} title="Copy link"
+                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}?code=${classCode}`)}>📋 Copy</button>
+                </div>
+                <p style={s.shareHint}>Students can open this link directly</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={s.tabBar}>
@@ -121,7 +120,7 @@ export default function TeacherDashboard({ user }) {
             <EmptyState icon="✅" text="No alerts" sub="Alerts appear when students have low attention or sleep events" />
           ) : (
             <div style={s.alertList}>
-              {alerts.map((a, i) => (
+              {(alerts || []).map((a, i) => (
                 <div key={i} style={s.alertRow}>
                   <div style={s.alertLeft}>
                     <div style={s.alertAvatar}>{a.studentName?.[0]?.toUpperCase()}</div>
@@ -436,10 +435,21 @@ const s = {
 
   empty: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.5rem", minHeight: "40vh" },
 
-  // Live class banner
-  classBanner: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "0.75rem 1rem", marginBottom: "1.25rem", gap: "1rem", flexWrap: "wrap" },
-  classInfo: { display: "flex", alignItems: "center", gap: "0.6rem" },
-  liveDot: { width: "10px", height: "10px", borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e", flexShrink: 0, animation: "pulse 1.5s infinite" },
-  classSeat: { background: "rgba(99,102,241,0.12)", color: "#6366f1", borderRadius: "999px", padding: "0.15rem 0.6rem", fontSize: "0.75rem", fontWeight: "600" },
-  classBtn: { padding: "0.4rem 1.1rem", borderRadius: "999px", border: "none", color: "#fff", fontWeight: "600", fontSize: "0.82rem", cursor: "pointer", fontFamily: "Inter,sans-serif" },
+  // Live class cards
+  startCard:    { display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "1rem 1.25rem", marginBottom: "1.25rem", gap: "1rem", flexWrap: "wrap" },
+  activeCard:   { background: "var(--bg-card)", border: "1px solid rgba(99,102,241,0.35)", borderRadius: "12px", padding: "1rem 1.25rem", marginBottom: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" },
+  activeTop:    { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" },
+  shareRow:     { display: "flex", gap: "1.5rem", flexWrap: "wrap", background: "var(--bg-surface)", borderRadius: "10px", padding: "0.9rem 1.1rem" },
+  shareBlock:   { display: "flex", flexDirection: "column", gap: "0.3rem", flex: 1, minWidth: "200px" },
+  shareLabel:   { fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px", color: "var(--text-muted)", margin: 0 },
+  shareHint:    { fontSize: "0.68rem", color: "var(--text-muted)", margin: 0 },
+  shareDivider: { width: "1px", background: "var(--border)", alignSelf: "stretch" },
+  codeDisplay:  { display: "flex", alignItems: "center", gap: "0.6rem" },
+  codeText:     { fontFamily: "monospace", fontWeight: 800, fontSize: "1.6rem", letterSpacing: "0.2em", color: "#818cf8" },
+  linkDisplay:  { display: "flex", alignItems: "center", gap: "0.6rem", overflow: "hidden" },
+  linkText:     { fontSize: "0.78rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 },
+  copyBtn:      { padding: "0.25rem 0.6rem", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.75rem", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "Inter,sans-serif", flexShrink: 0 },
+  liveDot:      { width: "10px", height: "10px", borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e", flexShrink: 0, animation: "pulse 1.5s infinite" },
+  classSeat:    { background: "rgba(99,102,241,0.12)", color: "#6366f1", borderRadius: "999px", padding: "0.15rem 0.6rem", fontSize: "0.75rem", fontWeight: "600" },
+  classBtn:     { padding: "0.4rem 1.1rem", borderRadius: "999px", border: "none", color: "#fff", fontWeight: "600", fontSize: "0.82rem", cursor: "pointer", fontFamily: "Inter,sans-serif" },
 };
